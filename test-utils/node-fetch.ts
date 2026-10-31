@@ -7,7 +7,7 @@ export const nodeFetch = ((input: string, init: RequestInit = {}) =>
     const url = new URL(input);
     const transport = url.protocol === 'https:' ? https : http;
     const req = transport.request(
-      url,
+      url.toString(),
       { method: init.method ?? 'GET', headers: init.headers as Record<string, string> },
       (res) => {
         const chunks: Buffer[] = [];
