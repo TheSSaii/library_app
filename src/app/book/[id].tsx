@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Linking, ScrollView, StyleSheet, View } from 'react-native';
 
 import { availabilityLabel, BookCover } from '@/components/book-views';
 import { Button } from '@/components/button';
@@ -12,14 +12,22 @@ import { useBook, useMyLoanForBook } from '@/hooks/use-library-data';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/providers/auth-provider';
 import { useData } from '@/providers/data-provider';
+import { api } from '@/services/api';
 import { describeError } from '@/services/api/client';
+import {
+  ImageTooLargeError,
+  pickCover,
+  PermissionDeniedError,
+  uploadCover,
+  type CoverSource,
+} from '@/services/device/cover-service';
 import { LoanRuleError } from '@/services/loans/loan-service';
 
 export default function BookDetailScreen() {
   const theme = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth();
-  const { online, requestLoan } = useData();
+  const { repos, online, requestLoan, notifyChanged } = useData();
   const { book, loaded } = useBook(id);
   const myLoan = useMyLoanForBook(id);
   const [busy, setBusy] = useState(false);
@@ -52,6 +60,45 @@ export default function BookDetailScreen() {
         error: true,
         text: err instanceof LoanRuleError ? err.message : describeError(err),
       });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onChangeCover(source: CoverSource) {
+    if (!book) return;
+    if (!online) {
+      setFeedback({ error: true, text: 'Necesitas conexión para subir la portada.' });
+      return;
+    }
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const cover = await pickCover(source, repos.activity);
+      if (!cover) return; // el usuario canceló
+      const updated = await uploadCover(api, repos.activity, book.id, cover);
+      await repos.books.upsertMany([updated]);
+      notifyChanged();
+      setFeedback({ error: false, text: 'Portada actualizada.' });
+    } catch (err) {
+      if (err instanceof PermissionDeniedError) {
+        // Si el sistema ya no vuelve a preguntar, la única salida es Ajustes.
+        Alert.alert(
+          'Permiso de cámara necesario',
+          'Para tomar la foto de la portada, permite el acceso a la cámara. ' +
+            'También puedes elegir una imagen de la galería.',
+          err.canAskAgain
+            ? [{ text: 'Entendido' }]
+            : [
+                { text: 'Cancelar', style: 'cancel' },
+                { text: 'Abrir ajustes', onPress: () => void Linking.openSettings() },
+              ],
+        );
+      } else if (err instanceof ImageTooLargeError) {
+        setFeedback({ error: true, text: 'La imagen es demasiado grande. Prueba con otra.' });
+      } else {
+        setFeedback({ error: true, text: describeError(err) });
+      }
     } finally {
       setBusy(false);
     }
@@ -109,7 +156,18 @@ export default function BookDetailScreen() {
               accessibilityHint="Envía una solicitud de préstamo al bibliotecario"
             />
           </View>
-        ) : null}
+        ) : (
+          <View style={styles.actions}>
+            <ThemedText type="smallBold">Portada del libro</ThemedText>
+            <Button title="Tomar foto" disabled={busy} onPress={() => onChangeCover('camera')} />
+            <Button
+              title="Elegir de la galería"
+              variant="secondary"
+              disabled={busy}
+              onPress={() => onChangeCover('library')}
+            />
+          </View>
+        )}
         {feedback ? (
           <ThemedText
             accessibilityLiveRegion="polite"

@@ -36,7 +36,15 @@
         }
       ],
       "expo-sqlite",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Biblioteca usa la cámara para tomar la foto de portada de un libro.",
+          "photosPermission": "Biblioteca accede a tus fotos solo cuando eliges una portada.",
+          "microphonePermission": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
